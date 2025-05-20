@@ -5,95 +5,15 @@
 
 /* global document, Office */
 import LZString from "lz-string";
-import { ONEDRIVE_CLIENT_ID } from "./secrets";
 
-// OneDrive obsługa
-let useOneDrive = false;
-let graphAccessToken: string | null = null;
-const ONEDRIVE_FOLDER = "OutlookNotesAddIn";
-const ONEDRIVE_FILE_PREFIX = "note_";
-
-// Importuj MSAL tylko jeśli jest potrzebny
-let msalInstance: any = null;
-if (ONEDRIVE_CLIENT_ID && (ONEDRIVE_CLIENT_ID as string) !== "YOUR_ONEDRIVE_CLIENT_ID_HERE") {
-  // Dynamiczny import, żeby nie ładować MSAL bez potrzeby
-  import("@azure/msal-browser").then(msal => {
-    msalInstance = new msal.PublicClientApplication({
-      auth: {
-        clientId: ONEDRIVE_CLIENT_ID,
-        authority: "https://login.microsoftonline.com/common",
-        redirectUri: window.location.origin
-      }
-    });
-  });
-}
-
-async function tryEnableOneDrive() {
-  if (!msalInstance) return false;
-  try {
-    const loginResponse = await msalInstance.loginPopup({
-      scopes: ["Files.ReadWrite", "User.Read"]
-    });
-    graphAccessToken = loginResponse.accessToken;
-    useOneDrive = true;
-    await ensureOneDriveFolder();
-    return true;
-  } catch {
-    useOneDrive = false;
-    return false;
-  }
-}
-
-async function ensureOneDriveFolder() {
-  if (!graphAccessToken) return;
-  const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/special/approot/children", {
-    headers: { Authorization: `Bearer ${graphAccessToken}` }
-  });
-  const data = await res.json();
-  if (!data.value.some((f: any) => f.name === ONEDRIVE_FOLDER)) {
-    await fetch("https://graph.microsoft.com/v1.0/me/drive/special/approot/children", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${graphAccessToken}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ name: ONEDRIVE_FOLDER, folder: {}, "@microsoft.graph.conflictBehavior": "rename" })
-    });
-  }
-}
-
-async function saveToOneDrive(noteData: NoteData) {
-  if (!graphAccessToken || !currentEntryId) return;
-  const fileName = `${ONEDRIVE_FILE_PREFIX}${currentEntryId}.json`;
-  await fetch(`https://graph.microsoft.com/v1.0/me/drive/special/approot:/${ONEDRIVE_FOLDER}/${fileName}:/content`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${graphAccessToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(noteData)
-  });
-}
-
-async function loadFromOneDrive(): Promise<NoteData | null> {
-  if (!graphAccessToken || !currentEntryId) return null;
-  const fileName = `${ONEDRIVE_FILE_PREFIX}${currentEntryId}.json`;
-  const res = await fetch(`https://graph.microsoft.com/v1.0/me/drive/special/approot:/${ONEDRIVE_FOLDER}/${fileName}:/content`, {
-    headers: { Authorization: `Bearer ${graphAccessToken}` }
-  });
-  if (res.ok) {
-    return await res.json();
-  }
-  return null;
-}
-
-// --- Główna logika aplikacji ---
 
 interface TodoItem {
   text: string;
   isDone: boolean;
 }
-
+function makeKey(entryId: string): string {
+  return `OutlookNotesAddIn_${entryId}`;
+}
 interface NoteData {
   text: string;
   todos: TodoItem[];
@@ -105,35 +25,58 @@ let loadedText = "";
 let todos: TodoItem[] = [];
 let uiInitialized = false;
 
+
+async function saveToCustomProps(noteData: NoteData, entryId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const compressed = LZString.compressToUTF16(JSON.stringify(noteData));
+    Office.context.mailbox.item.loadCustomPropertiesAsync(loadResult => {
+      if (loadResult.status !== Office.AsyncResultStatus.Succeeded) {
+        return reject(loadResult.error);
+      }
+      const props = loadResult.value;
+      props.set(makeKey(entryId), compressed);
+      props.saveAsync(saveResult => {
+        if (saveResult.status === Office.AsyncResultStatus.Succeeded) {
+          resolve();
+        } else {
+          reject(saveResult.error);
+        }
+      });
+    });
+  });
+}
+
+async function loadFromCustomProps(entryId: string): Promise<NoteData | null> {
+  return new Promise((resolve, reject) => {
+    Office.context.mailbox.item.loadCustomPropertiesAsync(loadResult => {
+      if (loadResult.status !== Office.AsyncResultStatus.Succeeded) {
+        return reject(loadResult.error);
+      }
+      const props = loadResult.value;
+      const data = props.get(makeKey(entryId)) as string | undefined;
+      if (!data) {
+        return resolve(null);
+      }
+      try {
+        const obj = JSON.parse(LZString.decompressFromUTF16(data) || "{}") as NoteData;
+        resolve(obj);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
 Office.onReady(async (info) => {
   if (info.host === Office.HostType.Outlook) {
-    // Jeśli jest prawidłowy clientId, zapytaj o OneDrive
-    if (ONEDRIVE_CLIENT_ID && (ONEDRIVE_CLIENT_ID as string) !== "YOUR_ONEDRIVE_CLIENT_ID_HERE" && msalInstance) {
-      const agree = confirm("Czy chcesz przechowywać notatki na swoim OneDrive?");
-      if (agree) {
-        await tryEnableOneDrive();
-      }
-    }
-    runOutlook();
+    await runOutlook();
     Office.context.mailbox.addHandlerAsync(
       Office.EventType.ItemChanged,
-      () => {
-        saveCurrent();
-        runOutlook();
+      async () => {
+        await saveCurrent();
+        await runOutlook();
       }
     );
   }
-
-  const loaded = await loadNote();
-  if (loaded) {
-    (document.getElementById("txtNote") as HTMLTextAreaElement).value = loaded.text;
-    todos = loaded.todos;
-    refreshList();
-  }
-
-  window.addEventListener("beforeunload", () => {
-    saveCurrent();
-  });
 });
 
 export async function runOutlook() {
@@ -146,7 +89,17 @@ export async function runOutlook() {
 
 function setupUI() {
   if (uiInitialized) return;
-  document.getElementById("txtNote").addEventListener("input", txtNote_Changed);
+    const txtNoteElem = document.getElementById("txtNote") as HTMLTextAreaElement;
+
+  txtNoteElem.addEventListener("input", txtNote_Changed);
+  txtNoteElem.addEventListener("blur", async () => {
+    if (txtNoteElem.value !== loadedText) {
+      await saveCurrent();
+    }
+  });
+
+
+
   document.getElementById("btnSave").addEventListener("click", btnSave_Click);
   document.getElementById("txtNewTodo").addEventListener("input", txtNewTodo_Changed);
   document.getElementById("btnAddTodo").addEventListener("click", btnAddTodo_Click);
@@ -175,23 +128,20 @@ function txtNewTodo_Changed() {
   btn.disabled = txt.length === 0;
 }
 
-function btnSave_Click() {
-  const noteData: NoteData = {
-    text: (document.getElementById("txtNote") as HTMLTextAreaElement).value,
-    todos: todos
-  };
-  saveToRoamingSettings(noteData);
-  saveCurrent();
+async function btnSave_Click() {
+  await saveCurrent();
 }
 
-function btnAddTodo_Click() {
+async function btnAddTodo_Click() {
   const txtInput = document.getElementById("txtNewTodo") as HTMLInputElement;
   const text = txtInput.value.trim();
   if (!text) return;
+
   todos.push({ text, isDone: false });
   txtInput.value = "";
   refreshList();
   txtNewTodo_Changed();
+  await saveCurrent(); // << dopisane
 }
 
 function refreshList() {
@@ -256,77 +206,59 @@ function refreshList() {
     });
   });
 
-  ul.querySelectorAll("input[type=checkbox]").forEach(cb => {
-    cb.addEventListener("change", (e) => {
-      const idx = +(e.target as HTMLInputElement).dataset.idx;
-      todos[idx].isDone = (e.target as HTMLInputElement).checked;
-      saveCurrent();
+ul.querySelectorAll("input[type=checkbox]").forEach(cb => {
+  cb.addEventListener("change", async (e) => {
+    const idx = +(e.target as HTMLInputElement).dataset.idx;
+    todos[idx].isDone = (e.target as HTMLInputElement).checked;
+    await saveCurrent();
+  });
+});
+ul.querySelectorAll(".delete-todo").forEach(btn => {
+  btn.addEventListener("click", async (e) => {
+    const idx = +(e.currentTarget as HTMLElement).dataset.del;
+    if (idx >= 0 && idx < todos.length) {
+      todos.splice(idx, 1);
       refreshList();
-    });
+      await saveCurrent();
+    }
   });
-  ul.querySelectorAll(".delete-todo").forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      const idx = +(e.currentTarget as HTMLElement).dataset.del;
-      if (idx >= 0 && idx < todos.length) {
-        todos.splice(idx, 1);
-        refreshList();
-        document.getElementById("btnSave").removeAttribute("disabled");
-      }
-    });
-  });
-}
-
-async function saveCurrent() {
-  if (!currentEntryId) return;
-  const txtNote = (document.getElementById("txtNote") as HTMLTextAreaElement).value;
-  const noteData: NoteData = { text: txtNote, todos };
-  if (useOneDrive) {
-    await saveToOneDrive(noteData);
-  } else {
-    saveToRoamingSettings(noteData);
-  }
-  loadedText = txtNote;
-  document.getElementById("btnSave").setAttribute("disabled", "true");
+});
 }
 
 async function loadNote() {
-  if (!currentEntryId) return;
-  let noteData: NoteData = { text: "", todos: [] };
-  if (useOneDrive) {
-    const loaded = await loadFromOneDrive();
-    if (loaded) noteData = loaded;
-  } else {
-    const loaded = loadFromRoamingSettings();
-    if (loaded) noteData = loaded;
+  if (!currentEntryId) return null;
+
+  const noteData = await loadFromCustomProps(currentEntryId);
+  if (!noteData) {
+    loadedText = "";
+    todos = [];
+    (document.getElementById("txtNote") as HTMLTextAreaElement).value = "";
+    refreshList();
+    (document.getElementById("btnSave") as HTMLButtonElement).disabled = true;
+    return null;
   }
+
   loadedText = noteData.text;
   todos = noteData.todos || [];
+
   (document.getElementById("txtNote") as HTMLTextAreaElement).value = loadedText;
   refreshList();
-  document.getElementById("btnSave").setAttribute("disabled", "true");
+  (document.getElementById("btnSave") as HTMLButtonElement).disabled = true;
+
   return noteData;
 }
 
-function saveToRoamingSettings(noteData: NoteData) {
-  if (!currentEntryId) return;
-  // Kompresuj dane przed zapisem
-  const compressed = LZString.compressToUTF16(JSON.stringify(noteData));
-  Office.context.roamingSettings.set(NOTES_KEY + "_" + currentEntryId, compressed);
-  Office.context.roamingSettings.saveAsync();
-}
+async function saveCurrent(entryIdOverride?: string) {
+  const entryIdToUse = entryIdOverride || currentEntryId;
+  if (!entryIdToUse) return;
 
-function loadFromRoamingSettings(): NoteData | null {
-  if (!currentEntryId) return null;
-  const data = Office.context.roamingSettings.get(NOTES_KEY + "_" + currentEntryId);
-  if (data) {
-    try {
-      // Dekompresuj dane po odczycie
-      return JSON.parse(LZString.decompressFromUTF16(data));
-    } catch {
-      return null;
-    }
+  const txtNote = (document.getElementById("txtNote") as HTMLTextAreaElement).value;
+  const noteData: NoteData = { text: txtNote, todos };
+  await saveToCustomProps(noteData, entryIdToUse);
+  if (!entryIdOverride) {
+    loadedText = txtNote;
+    (document.getElementById("btnSave") as HTMLButtonElement).disabled = true;
   }
-  return null;
 }
 
 

@@ -196,7 +196,6 @@ li, .todo-row {
     width: 100%;
     margin-bottom: 18px;
     transition: background 0.2s;
-    display: none;
 }
 .notes-btn:disabled {
     background: #c8c6c4;
