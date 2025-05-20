@@ -1,0 +1,21 @@
+{
+  "root": true,
+  "plugins": [
+    "office-addins"
+  ],
+  "extends": [
+    "plugin:office-addins/recommended"
+  ],
+  "rules": {
+    "no-unused-vars": "off",
+    "no-undef": "off"
+    // Dodaj inne reguły, które chcesz wyłączyć
+  },
+  "prettier/prettier": [
+    "error",
+    {},
+    {
+      "usePrettierrc": false
+    }
+  ]
+}

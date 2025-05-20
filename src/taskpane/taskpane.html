@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Outlook Notes Add-in</title>
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+    <link href="taskpane.css" rel="stylesheet" type="text/css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+
+<body>
+        <button id="btnSave" class="notes-btn" disabled>Zapisz notatkę</button>
+        <h2 class="notes-title">Notatka do wiadomości</h2>
+        <textarea id="txtNote" class="notes-textarea" rows="4" placeholder="Wpisz notatkę..."></textarea>
+
+        <div class="todos-section">
+
+            <h3 class="todos-title">Lista zadań</h3>
+            <div class="todos-add">
+                <input id="txtNewTodo" class="todos-input" placeholder="Nowe zadanie" />
+                <button id="btnAddTodo" class="todos-btn" disabled title="Dodaj">
+                    <span aria-hidden="true" style="font-size:20px;line-height:1;">&#43;</span>
+                    <span class="sr-only" style="position:absolute;left:-9999px;">Dodaj</span>
+                </button>
+            </div>
+            <ul id="todos" class="todos-list">
+                <li>
+                    <span class="delete-todo" data-del="${idx}" title="Usuń">
+                    </span>
+                </li>
+            </ul>   
+    </div>
+</body>
+
+</html>
