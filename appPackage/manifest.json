@@ -7,16 +7,20 @@
         "short": "OutlookNotesAddInNew2",
         "full": "Full name for OutlookNotesAddInNew2"
     },
+    "webApplicationInfo": {
+    "id": "548b6512-4a59-428d-97b7-3a31f1533413",
+    "resource": "api://548b6512-4a59-428d-97b7-3a31f1533413"
+  },
     "description": {
         "short": "A template to get started.",
         "full": "This is the template to get started."
     },
-    "developer": {
-        "name": "Contoso",
-        "websiteUrl": "https://www.contoso.com",
-        "privacyUrl": "https://www.contoso.com/privacy",
-        "termsOfUseUrl": "https://www.contoso.com/servicesagreement"
-    },
+"developer": {
+    "name": "Contoso",
+    "websiteUrl": "https://www.microsoft.com",
+    "privacyUrl": "https://privacy.microsoft.com/en-US/privacystatement",
+    "termsOfUseUrl": "https://www.microsoft.com/en-us/servicesagreement"
+},
     "icons": {
         "outline": "assets/outline.png",
         "color": "assets/color.png"
