@@ -4,8 +4,8 @@
     "manifestVersion": "devPreview",
     "version": "1.0.0",
     "name": {
-        "short": "OutlookNotesAddInNew2",
-        "full": "Full name for OutlookNotesAddInNew2"
+        "short": "OutlookNotesAddIn",
+        "full": "Full name for OutlookNotesAddIn"
     },
     "description": {
         "short": "A template to get started.",
@@ -17,6 +17,7 @@
     "privacyUrl": "https://delightful-grass-02770d803.6.azurestaticapps.net/privacy.html",
     "termsOfUseUrl": "https://delightful-grass-02770d803.6.azurestaticapps.net/terms.html"
 },
+
     "icons": {
         "outline": "assets/outline.png",
         "color": "assets/color.png"
@@ -47,10 +48,7 @@
         {
             "requirements": {
                 "scopes": [
-                    "mail",
-                    "workbook",
-                    "document",
-                    "presentation"
+                    "mail"
                 ]
             },
             "runtimes": [
