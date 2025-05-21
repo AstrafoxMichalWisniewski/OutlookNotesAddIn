@@ -17,9 +17,9 @@
     },
 "developer": {
     "name": "Contoso",
-    "websiteUrl": "https://www.microsoft.com",
-    "privacyUrl": "https://privacy.microsoft.com/en-US/privacystatement",
-    "termsOfUseUrl": "https://www.microsoft.com/en-us/servicesagreement"
+    "websiteUrl": "https://delightful-grass-02770d803.6.azurestaticapps.net",
+    "privacyUrl": "https://delightful-grass-02770d803.6.azurestaticapps.net/privacy.html",
+    "termsOfUseUrl": "https://delightful-grass-02770d803.6.azurestaticapps.net/terms.html"
 },
     "icons": {
         "outline": "assets/outline.png",
