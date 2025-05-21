@@ -7,10 +7,6 @@
         "short": "OutlookNotesAddInNew2",
         "full": "Full name for OutlookNotesAddInNew2"
     },
-    "webApplicationInfo": {
-    "id": "548b6512-4a59-428d-97b7-3a31f1533413",
-    "resource": "api://548b6512-4a59-428d-97b7-3a31f1533413"
-  },
     "description": {
         "short": "A template to get started.",
         "full": "This is the template to get started."
