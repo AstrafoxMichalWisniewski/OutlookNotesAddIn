@@ -59,6 +59,16 @@ module.exports = async (env, options) => {
         template: "./src/taskpane/taskpane.html",
         chunks: ["polyfill", "taskpane"],
       }),
+      new HtmlWebpackPlugin({
+        filename: "privacy.html",
+        template: "./src/taskpane/privacy.html",
+        chunks: [],
+      }),
+      new HtmlWebpackPlugin({
+        filename: "terms.html",
+        template: "./src/taskpane/terms.html",
+        chunks: [],
+      }),
       new CopyWebpackPlugin({
         patterns: [
           {
