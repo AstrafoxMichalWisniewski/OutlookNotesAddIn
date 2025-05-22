@@ -11,9 +11,10 @@ interface TodoItem {
   text: string;
   isDone: boolean;
 }
-function makeKey(entryId: string): string {
-  return `OutlookNotesAddIn_${entryId}`;
+function makeKey(itemId: string): string {
+  return `OutlookNotesAddIn_msg_${itemId}`;
 }
+
 interface NoteData {
   text: string;
   todos: TodoItem[];
@@ -26,7 +27,7 @@ let todos: TodoItem[] = [];
 let uiInitialized = false;
 
 
-async function saveToCustomProps(noteData: NoteData, entryId: string): Promise<void> {
+async function saveToCustomProps(noteData: NoteData, itemId: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const compressed = LZString.compressToUTF16(JSON.stringify(noteData));
     Office.context.mailbox.item.loadCustomPropertiesAsync(loadResult => {
@@ -34,7 +35,7 @@ async function saveToCustomProps(noteData: NoteData, entryId: string): Promise<v
         return reject(loadResult.error);
       }
       const props = loadResult.value;
-      props.set(makeKey(entryId), compressed);
+      props.set(makeKey(itemId), compressed);
       props.saveAsync(saveResult => {
         if (saveResult.status === Office.AsyncResultStatus.Succeeded) {
           resolve();
@@ -46,14 +47,14 @@ async function saveToCustomProps(noteData: NoteData, entryId: string): Promise<v
   });
 }
 
-async function loadFromCustomProps(entryId: string): Promise<NoteData | null> {
+async function loadFromCustomProps(itemId: string): Promise<NoteData | null> {
   return new Promise((resolve, reject) => {
     Office.context.mailbox.item.loadCustomPropertiesAsync(loadResult => {
       if (loadResult.status !== Office.AsyncResultStatus.Succeeded) {
         return reject(loadResult.error);
       }
       const props = loadResult.value;
-      const data = props.get(makeKey(entryId)) as string | undefined;
+      const data = props.get(makeKey(itemId)) as string | undefined;
       if (!data) {
         return resolve(null);
       }
@@ -81,8 +82,8 @@ Office.onReady(async (info) => {
 
 export async function runOutlook() {
   const item = Office.context.mailbox.item;
-  const newEntryId = item.conversationId || item.itemId || item.internetMessageId || "unknown";
-  currentEntryId = newEntryId;
+  const itemId = item.itemId || "unknown";
+  currentEntryId = itemId;
   setupUI();
   await loadNote();
 }
@@ -141,7 +142,7 @@ async function btnAddTodo_Click() {
   txtInput.value = "";
   refreshList();
   txtNewTodo_Changed();
-  await saveCurrent(); // << dopisane
+  await saveCurrent(); 
 }
 
 function refreshList() {
@@ -201,7 +202,7 @@ function refreshList() {
         const moved = todos.splice(dragSrcIdx, 1)[0];
         todos.splice(dropIdx, 0, moved);
         refreshList();
-        document.getElementById("btnSave").removeAttribute("disabled");
+        saveCurrent();
       }
     });
   });
