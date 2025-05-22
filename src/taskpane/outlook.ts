@@ -4,103 +4,155 @@
  */
 
 /* global document, Office */
-import LZString from "lz-string";
 
+import { PublicClientApplication, InteractionRequiredAuthError } from "@azure/msal-browser";
+
+const msalConfig = {
+  auth: {
+    clientId: "548b6512-4a59-428d-97b7-3a31f1533413", // Twój clientId
+    authority: "https://login.microsoftonline.com/common",
+    redirectUri: "https://delightful-grass-02770d803.6.azurestaticapps.net/terms.html" // lub domena Twojej aplikacji
+  }
+};
+
+const msalInstance = new PublicClientApplication(msalConfig);
+async function initializeMsal() {
+  await msalInstance.initialize(); 
+}
+
+export async function login() {
+  const loginResponse = await msalInstance.loginPopup({
+    scopes: ["Files.ReadWrite.AppFolder", "User.Read"]
+  });
+  return loginResponse.account;
+}
+
+export async function getAccessToken(): Promise<string> {
+  let accounts = msalInstance.getAllAccounts();
+
+  if (accounts.length === 0) {
+    const loginResponse = await msalInstance.loginPopup({
+      scopes: ["Files.ReadWrite.AppFolder", "User.Read"]
+    });
+    accounts = [loginResponse.account];
+    msalInstance.setActiveAccount(loginResponse.account);
+  } else {
+    msalInstance.setActiveAccount(accounts[0]);
+  }
+
+  try {
+    // Próba pobrania tokena "cicho"
+    const response = await msalInstance.acquireTokenSilent({
+      scopes: ["Files.ReadWrite.AppFolder", "User.Read"],
+      account: msalInstance.getActiveAccount(),
+    });
+    return response.accessToken;
+  } catch (error) {
+    // Jeśli błąd wymaga interakcji użytkownika (np. consent), wymuś logowanie popupem
+    if (error instanceof InteractionRequiredAuthError) {
+      const response = await msalInstance.acquireTokenPopup({
+        scopes: ["Files.ReadWrite.AppFolder", "User.Read"],
+      });
+      return response.accessToken;
+    } else {
+      throw error;
+    }
+  }
+}
+const GRAPH_BASE = "https://graph.microsoft.com/v1.0/me/drive";
+
+export async function saveNoteToOneDrive(noteData: NoteData, conversationId: string) {
+  const token = await getAccessToken();
+  const filePath = `/OutlookNotes/note_${conversationId}.json`; // opcjonalny podfolder w appFolder
+  const uploadUrl = `${GRAPH_BASE}/special/approot:${filePath}:/content`;
+
+  const content = JSON.stringify(noteData);
+
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: content
+  });
+
+  if (!res.ok) throw new Error(`Błąd zapisu pliku: ${res.statusText}`);
+}
+
+export async function loadNoteFromOneDrive(conversationId: string): Promise<NoteData | null> {
+  const token = await getAccessToken();
+  const filePath = `/OutlookNotes/note_${conversationId}.json`;
+  const url = `${GRAPH_BASE}/special/approot:${filePath}:/content`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Błąd odczytu: ${res.statusText}`);
+  return await res.json();
+}
 
 interface TodoItem {
   text: string;
   isDone: boolean;
 }
-function makeKey(itemId: string): string {
-  return `OutlookNotesAddIn_msg_${itemId}`;
-}
-
 interface NoteData {
   text: string;
   todos: TodoItem[];
 }
 
-const NOTES_KEY = "notesData";
 let currentEntryId: string | null = null;
 let loadedText = "";
 let todos: TodoItem[] = [];
 let uiInitialized = false;
 
 
-async function saveToCustomProps(noteData: NoteData, itemId: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const compressed = LZString.compressToUTF16(JSON.stringify(noteData));
-    Office.context.mailbox.item.loadCustomPropertiesAsync(loadResult => {
-      if (loadResult.status !== Office.AsyncResultStatus.Succeeded) {
-        return reject(loadResult.error);
-      }
-      const props = loadResult.value;
-      props.set(makeKey(itemId), compressed);
-      props.saveAsync(saveResult => {
-        if (saveResult.status === Office.AsyncResultStatus.Succeeded) {
-          resolve();
-        } else {
-          reject(saveResult.error);
-        }
-      });
-    });
-  });
-}
-
-async function loadFromCustomProps(itemId: string): Promise<NoteData | null> {
-  return new Promise((resolve, reject) => {
-    Office.context.mailbox.item.loadCustomPropertiesAsync(loadResult => {
-      if (loadResult.status !== Office.AsyncResultStatus.Succeeded) {
-        return reject(loadResult.error);
-      }
-      const props = loadResult.value;
-      const data = props.get(makeKey(itemId)) as string | undefined;
-      if (!data) {
-        return resolve(null);
-      }
-      try {
-        const obj = JSON.parse(LZString.decompressFromUTF16(data) || "{}") as NoteData;
-        resolve(obj);
-      } catch {
-        resolve(null);
-      }
-    });
-  });
-}
 Office.onReady(async (info) => {
   if (info.host === Office.HostType.Outlook) {
+    showLoading();
+    await initializeMsal();
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length === 0) {
+      const loginResponse = await msalInstance.loginPopup({
+        scopes: ["Files.ReadWrite.AppFolder", "User.Read"]
+      });
+      msalInstance.setActiveAccount(loginResponse.account);
+    } else {
+      msalInstance.setActiveAccount(accounts[0]);
+    }
     await runOutlook();
 Office.context.mailbox.addHandlerAsync(
   Office.EventType.ItemChanged,
-  () => {
-    setTimeout(async () => {
-      const newItemId = Office.context.mailbox.item.itemId;
-      await saveCurrent();
-      if (newItemId && newItemId !== currentEntryId) {
-        currentEntryId = newItemId;
-        await runOutlook();
-      } else {
-        await runOutlook();
-      }
-    }, 200);
+  async () => {
+    showLoading();
+    const newconversationId = Office.context.mailbox.item.conversationId;
+    await saveCurrent();
+    if (newconversationId && newconversationId !== currentEntryId) {
+      currentEntryId = newconversationId;
+      await runOutlook();
+    } else {
+      await runOutlook();
+    }
   }
 );
   }
 });
 
 export async function runOutlook() {
-  const item = Office.context.mailbox.item;
-
-  let retries = 5;
-  while (!(item.itemId) && retries > 0) {
-    await new Promise((res) => setTimeout(res, 200));
-    retries--;
+  try {
+    const item = Office.context.mailbox.item;
+    const convId = item.conversationId || "unknown";
+    currentEntryId = convId;
+    setupUI();
+    await loadNote();
+  } finally {
+    hideLoading();
   }
-
-  const itemId = item.itemId || "unknown";
-  currentEntryId = itemId;
-  setupUI();
-  await loadNote();
 }
 
 function setupUI() {
@@ -244,7 +296,7 @@ ul.querySelectorAll(".delete-todo").forEach(btn => {
 async function loadNote() {
   if (!currentEntryId) return null;
 
-  const noteData = await loadFromCustomProps(currentEntryId);
+  const noteData = await loadNoteFromOneDrive(currentEntryId);
   if (!noteData) {
     loadedText = "";
     todos = [];
@@ -268,18 +320,83 @@ async function saveCurrent(entryIdOverride?: string) {
   const entryIdToUse = entryIdOverride || currentEntryId;
   if (!entryIdToUse) return;
 
-  const txtNote = (document.getElementById("txtNote") as HTMLTextAreaElement).value;
-  const noteData: NoteData = { text: txtNote, todos };
-  await saveToCustomProps(noteData, entryIdToUse);
-  if (!entryIdOverride) {
-    loadedText = txtNote;
-    (document.getElementById("btnSave") as HTMLButtonElement).disabled = true;
-  }
+  try {
+    const txtNote = (document.getElementById("txtNote") as HTMLTextAreaElement).value;
+    const noteData: NoteData = { text: txtNote, todos };
+    await saveNoteToOneDrive(noteData, entryIdToUse);
+    if (!entryIdOverride) {
+      loadedText = txtNote;
+      (document.getElementById("btnSave") as HTMLButtonElement).disabled = true;
+    }
+  } catch (error) { 
+    console.error("Błąd podczas zapisywania notatki:", error);
+  } 
+}
+function showLoading() {
+  // Ukryj textarea i input + button
+  document.getElementById("noteWrapper").style.display = "none";
+  document.getElementById("todosAddWrapper").style.display = "none";
+  document.getElementById("todos").style.display = "none";
+
+  // Pokaż dwa małe spinnery
+  document.getElementById("noteLoading").style.display = "block";
+  document.getElementById("todosAddLoading").style.display = "block";
 }
 
+function hideLoading() {
+  // Pokaż textarea i input + button
+  document.getElementById("noteWrapper").style.display = "block";
+  document.getElementById("todosAddWrapper").style.display = "flex";
+  document.getElementById("todos").style.display = "block";
+
+  // Ukryj spinnery
+  document.getElementById("noteLoading").style.display = "none";
+  document.getElementById("todosAddLoading").style.display = "none";
+}
+// import LZString from "lz-string";
+// function makeKey(conversationId: string): string {
+//   return `OutlookNotesAddIn_msg_${conversationId}`;
+// }
 
 
 
+// async function saveToCustomProps(noteData: NoteData, conversationId: string): Promise<void> {
+//   return new Promise((resolve, reject) => {
+//     const compressed = LZString.compressToUTF16(JSON.stringify(noteData));
+//     Office.context.mailbox.item.loadCustomPropertiesAsync(loadResult => {
+//       if (loadResult.status !== Office.AsyncResultStatus.Succeeded) {
+//         return reject(loadResult.error);
+//       }
+//       const props = loadResult.value;
+//       props.set(makeKey(conversationId), compressed);
+//       props.saveAsync(saveResult => {
+//         if (saveResult.status === Office.AsyncResultStatus.Succeeded) {
+//           resolve();
+//         } else {
+//           reject(saveResult.error);
+//         }
+//       });
+//     });
+//   });
+// }
 
-
-
+// async function loadFromCustomProps(conversationId: string): Promise<NoteData | null> {
+//   return new Promise((resolve, reject) => {
+//     Office.context.mailbox.item.loadCustomPropertiesAsync(loadResult => {
+//       if (loadResult.status !== Office.AsyncResultStatus.Succeeded) {
+//         return reject(loadResult.error);
+//       }
+//       const props = loadResult.value;
+//       const data = props.get(makeKey(conversationId)) as string | undefined;
+//       if (!data) {
+//         return resolve(null);
+//       }
+//       try {
+//         const obj = JSON.parse(LZString.decompressFromUTF16(data) || "{}") as NoteData;
+//         resolve(obj);
+//       } catch {
+//         resolve(null);
+//       }
+//     });
+//   });
+// }
