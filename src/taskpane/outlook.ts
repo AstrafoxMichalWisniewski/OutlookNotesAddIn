@@ -72,10 +72,16 @@ Office.onReady(async (info) => {
     await runOutlook();
 Office.context.mailbox.addHandlerAsync(
   Office.EventType.ItemChanged,
-  async () => {
-    await saveCurrent();
+  () => {
     setTimeout(async () => {
-      await runOutlook();
+      const newItemId = Office.context.mailbox.item.itemId;
+      await saveCurrent();
+      if (newItemId && newItemId !== currentEntryId) {
+        currentEntryId = newItemId;
+        await runOutlook();
+      } else {
+        await runOutlook();
+      }
     }, 200);
   }
 );
@@ -85,7 +91,6 @@ Office.context.mailbox.addHandlerAsync(
 export async function runOutlook() {
   const item = Office.context.mailbox.item;
 
-  // Retry logic jeśli itemId nie jest jeszcze dostępny
   let retries = 5;
   while (!(item.itemId) && retries > 0) {
     await new Promise((res) => setTimeout(res, 200));
