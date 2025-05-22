@@ -70,18 +70,28 @@ async function loadFromCustomProps(itemId: string): Promise<NoteData | null> {
 Office.onReady(async (info) => {
   if (info.host === Office.HostType.Outlook) {
     await runOutlook();
-    Office.context.mailbox.addHandlerAsync(
-      Office.EventType.ItemChanged,
-      async () => {
-        await saveCurrent();
-        await runOutlook();
-      }
-    );
+Office.context.mailbox.addHandlerAsync(
+  Office.EventType.ItemChanged,
+  async () => {
+    await saveCurrent();
+    setTimeout(async () => {
+      await runOutlook();
+    }, 200);
+  }
+);
   }
 });
 
 export async function runOutlook() {
   const item = Office.context.mailbox.item;
+
+  // Retry logic jeśli itemId nie jest jeszcze dostępny
+  let retries = 5;
+  while (!(item.itemId) && retries > 0) {
+    await new Promise((res) => setTimeout(res, 200));
+    retries--;
+  }
+
   const itemId = item.itemId || "unknown";
   currentEntryId = itemId;
   setupUI();
