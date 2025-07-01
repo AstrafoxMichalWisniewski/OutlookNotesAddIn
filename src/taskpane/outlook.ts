@@ -16,9 +16,9 @@ import { PublicClientApplication, InteractionRequiredAuthError } from "@azure/ms
 
 const msalConfig = {
   auth: {
-    clientId: "548b6512-4a59-428d-97b7-3a31f1533413", // Twój clientId
-    authority: "https://login.microsoftonline.com/common",
-    redirectUri: "https://delightful-grass-02770d803.6.azurestaticapps.net/terms.html" // lub domena Twojej aplikacji
+    clientId: process.env.VITE_MSAL_CLIENT_ID!,
+    authority: process.env.VITE_MSAL_AUTHORITY!,
+    redirectUri: process.env.VITE_MSAL_REDIRECT_URI!
   }
 };
 
