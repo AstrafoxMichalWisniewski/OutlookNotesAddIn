@@ -2,7 +2,10 @@
 env/.env.*.user
 env/.env.local
 appPackage/build
-
+env/
+.env
+env.dev
+env.production
 # Dependency directories
 node_modules
 
