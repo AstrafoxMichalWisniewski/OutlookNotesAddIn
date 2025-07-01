@@ -5,6 +5,13 @@
 
 /* global document, Office */
 
+//TODO
+
+//edycja todo jakas
+
+
+
+
 import { PublicClientApplication, InteractionRequiredAuthError } from "@azure/msal-browser";
 
 const msalConfig = {
