@@ -1,0 +1,2 @@
+!function(){"use strict";function e(e){const o={type:Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,message:"Performed action.",icon:"Icon.80x80",persistent:!0};Office.context.mailbox.item.notificationMessages.replaceAsync("ActionPerformanceNotification",o),e.completed()}Office.onReady((async o=>{if(o.host!==Office.HostType.Outlook)throw new Error(`${o.host} not supported.`);Office.actions.associate("action",e)}))}();
+//# sourceMappingURL=commands.js.map
