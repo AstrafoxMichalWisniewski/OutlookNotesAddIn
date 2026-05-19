@@ -1,0 +1,157 @@
+name: AI triage mail
+
+on:
+  repository_dispatch:
+    types: [ai_triage_mail]
+
+permissions:
+  contents: read
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.TRIAGE_GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure git author
+        run: |
+          git config user.name "AI Triage Bot"
+          git config user.email "ai-triage-bot@users.noreply.github.com"
+
+      - name: Create triage branch and file
+        id: triage
+        env:
+          SUBJECT: ${{ github.event.client_payload.subject }}
+          FROM: ${{ github.event.client_payload.from }}
+          BODY: ${{ github.event.client_payload.body }}
+          ASSIGNEE: ${{ github.event.client_payload.assignee }}
+          BASE_BRANCH: ${{ github.event.client_payload.base_branch || github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          safe_slug="$(printf '%s' "$SUBJECT" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:] -_' | tr ' _' '--' | cut -c1-60)"
+          if [ -z "$safe_slug" ]; then
+            safe_slug="mail"
+          fi
+
+          stamp="$(date -u +'%Y%m%d-%H%M%S')"
+          branch="ai-triage/${stamp}-${safe_slug}"
+          file="triage/${stamp}-${safe_slug}.md"
+
+          git checkout "$BASE_BRANCH"
+          git checkout -b "$branch"
+          mkdir -p triage
+
+          cat > "$file" <<EOF
+          # Zgloszenie klienta
+
+          ## Dane
+
+          - Subject: ${SUBJECT}
+          - From: ${FROM}
+          - Created: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          - Suggested assignee: ${ASSIGNEE}
+
+          ## Tresc maila
+
+          ${BODY}
+
+          ## Uwagi
+
+          Ten PR jest technicznym kontenerem dla analizy Codex.
+          Nie merge'uj go do glownej galezi, jesli nie chcesz trzymac historii zgloszen w repo.
+          EOF
+
+          git add "$file"
+          git commit -m "Add AI triage request: ${SUBJECT}"
+          git push origin "$branch"
+
+          {
+            echo "branch=$branch"
+            echo "file=$file"
+            echo "title=[AI TRIAGE] ${SUBJECT}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        id: create_pr
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.TRIAGE_GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const head = '${{ steps.triage.outputs.branch }}';
+            const base = context.payload.client_payload.base_branch || context.payload.repository.default_branch;
+            const title = '${{ steps.triage.outputs.title }}';
+            const file = '${{ steps.triage.outputs.file }}';
+            const assignee = context.payload.client_payload.assignee;
+
+            const pr = await github.rest.pulls.create({
+              owner,
+              repo,
+              title,
+              head,
+              base,
+              body: [
+                'Automatyczny PR utworzony przez AI triage.',
+                '',
+                `Zgloszenie zapisano w \`${file}\`.`,
+                '',
+                'Ten PR sluzy jako miejsce analizy i decyzji. Nie trzeba go mergeowac.'
+              ].join('\n')
+            });
+
+            if (assignee) {
+              try {
+                await github.rest.issues.addAssignees({
+                  owner,
+                  repo,
+                  issue_number: pr.data.number,
+                  assignees: [assignee]
+                });
+              } catch (error) {
+                core.warning(`Could not assign ${assignee}: ${error.message}`);
+              }
+            }
+
+            core.setOutput('number', pr.data.number);
+            core.setOutput('url', pr.data.html_url);
+
+      - name: Ask Codex to analyze
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.TRIAGE_GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number('${{ steps.create_pr.outputs.number }}');
+            const file = '${{ steps.triage.outputs.file }}';
+
+            const body = `@codex przeanalizuj zgloszenie klienta z pliku \`${file}\` oraz cale repozytorium.
+
+            Nie zmieniaj kodu. Odpowiedz po polsku.
+
+            Wynik powinien zawierac:
+            1. klasyfikacje: code defect, configuration issue, data issue, infrastructure issue, question albo insufficient information,
+            2. prawdopodobny obszar aplikacji,
+            3. konkretne pliki/funkcje jako dowody,
+            4. czy znalazles potwierdzony blad w kodzie,
+            5. jesli nie, napisz jasno: "Nie znalazlem potwierdzonego bledu w kodzie",
+            6. minimalna propozycje dalszych krokow,
+            7. szkic wiadomosci Teams do osoby odpowiedzialnej,
+            8. szkic odpowiedzi do klienta.
+
+            Nie zgaduj. Jesli brakuje logow albo reprodukcji, napisz czego brakuje.`;
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body
+            });
