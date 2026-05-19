@@ -35,7 +35,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          safe_slug="$(printf '%s' "$SUBJECT" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:] -_' | tr ' _' '--' | cut -c1-60)"
+          safe_slug="$(printf '%s' "$SUBJECT" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g' \
+            | cut -c1-60)"
           if [ -z "$safe_slug" ]; then
             safe_slug="mail"
           fi
